@@ -17,6 +17,8 @@ import logging
 
 import yaml
 
+import json
+
 AND = "AND"
 OR = "OR"
 
@@ -27,7 +29,7 @@ REWARD_EASY = "LOW_FLAG_REWARD"
 REWARD_MEDIUM = "MEDIUM_FLAG_REWARD"
 REWARD_HARD = "HIGH_FLAG_REWARD"
 
-def draw_graph(graph, seed):
+def draw_graph(graph, seed, outfile=None):
     fig = plt.figure(figsize=(10, 10))
 
     lengths = list(nx.shortest_path_length(graph, source=0).values())
@@ -48,10 +50,10 @@ def draw_graph(graph, seed):
     }
 
     # pos = nx.kamada_kawai_layout(graph)
-    # pos = nx.spring_layout(graph, k=10, iterations=1000, fixed=[0], pos={0:(0,0)}, center=(0,0), seed=seed)
+    #pos = nx.spring_layout(graph, k=10, iterations=1000, fixed=[0], pos={0:(0,0)}, center=(0,0), seed=seed)
     # pos = nx.planar_layout(graph, scale=10)
     # pos = nx.spectral_layout(graph)
-    pos = nx.nx_pydot.graphviz_layout(graph, root=0, prog="dot")
+    pos = nx.nx_pydot.graphviz_layout(graph, root=0, prog="sfdp")
 
     
     OR_edges = []
@@ -66,6 +68,7 @@ def draw_graph(graph, seed):
         else:
             raise Exception(f"Invalid child type")
 
+    plt.figure(figsize=(20, 20))
     nx.draw_networkx_edges(graph, pos, OR_edges, **edge_options)
     nx.draw_networkx_edges(graph, pos, AND_edges, style="dashed", **edge_options)
     nx.draw_networkx_nodes(
@@ -77,7 +80,11 @@ def draw_graph(graph, seed):
     ax = plt.gca()
     ax.margins(0.20)
     plt.axis("off")
-    plt.show()
+
+    if outfile is None:
+        plt.show()
+    else:
+        plt.savefig(outfile)
 
 
 class BaseGenerator:
@@ -117,7 +124,7 @@ class GraphGeneratorAlt(BaseGenerator):
                 visited.add(current_node)
                 children = []
                 for n in range(num_children):
-                    child = self.rng.choice(unvisited)
+                    child = int(self.rng.choice(unvisited))
                     child_type = self.graph.nodes[child]["step_type"]
                     self.graph.add_edge(current_node, child, step_type=child_type)
                     children.append(child)
@@ -128,7 +135,7 @@ class GraphGeneratorAlt(BaseGenerator):
             predecessors = list(set(visited))
             if len(predecessors) > 0 and num_parents != 0:
                 for _ in range(num_parents):
-                    parent = self.rng.choice(predecessors)
+                    parent = int(self.rng.choice(predecessors))
                     if not self.graph.has_edge(parent, current_node):
                         self.graph.add_edge(
                             parent,
@@ -235,7 +242,7 @@ class DirectedGraphGenerator(BaseGenerator):
 
         for _ in range(num_connections):
 
-            node = self.rng.choice(to_connect)
+            node = int(self.rng.choice(to_connect))
             to_connect.remove(node)
 
             descendants = nx.descendants(self.graph, node)
@@ -292,12 +299,18 @@ class DirectedGraphGenerator(BaseGenerator):
 
         nx.set_node_attributes(self.graph, mappings, name="asset")
 
-    def set_flags(self, entrypoint):
+    def set_flags(self, entrypoint, num_flags=None):
         flags = []
         flags_with_rewards = {}
+        flags_added = 0
+        nodes = list(self.graph.nodes)
+        self.rng.shuffle(nodes)
         for n in self.graph.nodes:
             if self.graph.out_degree(n) == 0:
                 flags.append(n)
+                flags_added += 1
+                if num_flags is not None and flags_added == num_flags:
+                    break
 
         distances = {}
         for f in flags:
@@ -317,6 +330,7 @@ class DirectedGraphGenerator(BaseGenerator):
                 flags_with_rewards[f] = REWARD_HARD
 
         nx.set_node_attributes(self.graph, flags_with_rewards, "reward")
+        return len(flags)
 
     def node_to_string(self, node):
         
@@ -346,6 +360,8 @@ class DirectedGraphGenerator(BaseGenerator):
             for s in self.graph.successors(n):
                 data["children"].append(self.node_to_string(s))
 
+            data["conditions"] = [str(attributes["asset"])]
+
             to_write[name] = data
             
         with open(f"{filename}", "w") as f:
@@ -357,29 +373,35 @@ class DirectedGraphGenerator(BaseGenerator):
         # parent is from same asset
         # many descendants with same asset as parent
 
-        for node, attributes in self.graph.nodes.items():
-            asset = attributes["asset"]
-            try:
-                parent = self.graph.successors(node).__next__()
-            except StopIteration:
-                continue
-            parent_asset = self.graph.nodes[parent]["asset"]
-            descendants = nx.descendants(self.graph, node)
-           
-            if self.graph.out_degree(node) > 3 and self.graph.in_degree(node) == 1:
-
-                if asset == parent_asset:
-                    self.graph.nodes[node]["asset"] = self.asset_count
-                    for n in descendants:
-                        self.graph.nodes[n]["asset"] = self.asset_count
-                    self.asset_count += 1
-
-                pass
-            elif asset == parent_asset and len(descendants) > 10:
+        def node_has_high_out(node, descendants):
+            if self.graph.out_degree(node) > self.rng.integers(1, 5) and self.graph.in_degree(node) == 1:
                 self.graph.nodes[node]["asset"] = self.asset_count
                 for n in descendants:
                     self.graph.nodes[n]["asset"] = self.asset_count
                 self.asset_count += 1
+
+        def node_has_many_children(node, descendants):
+            if len(descendants) > self.rng.integers(2, 3):
+                self.graph.nodes[node]["asset"] = self.asset_count
+                for n in descendants:
+                    self.graph.nodes[n]["asset"] = self.asset_count
+                self.asset_count += 1
+
+        conditions = [node_has_high_out, node_has_many_children]
+        for func in conditions:
+            for node, attributes in self.graph.nodes.items():
+                
+                try:
+                    parent = self.graph.successors(node).__next__()
+                except StopIteration:
+                    continue
+                parent_asset = self.graph.nodes[parent]["asset"]
+                descendants = nx.descendants(self.graph, node)
+                asset = attributes["asset"]
+                if asset == parent_asset:
+                    func(node, descendants)
+                    pass
+
 
 
 def add_unique(path: list, item):
@@ -420,7 +442,7 @@ class PathFinderAttacker():
                         paths_to_parents.append((path_to_parent, cost))
                 
 
-                for p, c in sorted(paths_to_parents, key=itemgetter(1)):
+                for p, _ in sorted(paths_to_parents, key=itemgetter(1)):
                     [add_unique(self.total_path, n) for n in p]
                 
             ttc_cost += step["ttc"]
@@ -430,13 +452,15 @@ class PathFinderAttacker():
         return path, ttc_cost
 
 
-
+def generate_graph(name, size, lateral_connections, num_flags):
+    pass
 
 
 
 def main(seed=888):
 
     # seed=None
+
 
     log_level = logging.INFO
 
@@ -446,8 +470,10 @@ def main(seed=888):
     random.seed(seed)
 
     initial_step = 0
-    size = 20
-    lateral_connections = 15
+    size = 200
+    lateral_connections = 50
+    num_flags = 20
+    graph_name="big"
 
     graph_generator = DirectedGraphGenerator(seed, size)
 
@@ -473,7 +499,8 @@ def main(seed=888):
         logger.warning(f"Graph is not acyclic.")
 
     graph_generator.set_edge_attributes()
-    graph_generator.set_flags(initial_step)
+    num_flags = graph_generator.set_flags(initial_step, num_flags=num_flags)
+
     graph_generator.add_more_assets()
     
     if lateral_connections > 0:
@@ -487,7 +514,7 @@ def main(seed=888):
     out_degrees = attack_graph.out_degree()
 
 
-    graph_generator.to_yaml("big.yaml")
+    graph_generator.to_yaml(f"{graph_name}.yaml")
 
     avg_in = 0
     avg_out = 0
@@ -527,15 +554,21 @@ def main(seed=888):
 
     logger.info(f"The graph contains {attack_graph.number_of_nodes()} steps with {len(assets)} assets.")
 
+    logger.info("The graph has %d flags.", num_flags)
+
     json_data = nx.node_link_data(attack_graph)
 
     attacker = PathFinderAttacker(attack_graph, start_node=0)
 
-    path = attacker.find_path_to(10)
+    #path = attacker.find_path_to(72)
 
-    print(path)
+    #print(path)
 
-    draw_graph(attack_graph, seed)
+    draw_graph(attack_graph, seed, f"{graph_name}.pdf")
+
+    with open(f"{graph_name}.json", "w") as f:
+        json.dump(nx.node_link_data(attack_graph), f)
+
     pass
 
 
