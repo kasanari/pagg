@@ -29,6 +29,7 @@ REWARD_EASY = "LOW_FLAG_REWARD"
 REWARD_MEDIUM = "MEDIUM_FLAG_REWARD"
 REWARD_HARD = "HIGH_FLAG_REWARD"
 
+
 def draw_graph(graph, seed, outfile=None):
     fig = plt.figure(figsize=(10, 10))
 
@@ -50,12 +51,11 @@ def draw_graph(graph, seed, outfile=None):
     }
 
     # pos = nx.kamada_kawai_layout(graph)
-    #pos = nx.spring_layout(graph, k=10, iterations=1000, fixed=[0], pos={0:(0,0)}, center=(0,0), seed=seed)
+    # pos = nx.spring_layout(graph, k=10, iterations=1000, fixed=[0], pos={0:(0,0)}, center=(0,0), seed=seed)
     # pos = nx.planar_layout(graph, scale=10)
     # pos = nx.spectral_layout(graph)
     pos = nx.nx_pydot.graphviz_layout(graph, root=0, prog="sfdp")
 
-    
     OR_edges = []
     AND_edges = []
     for p, c in graph.edges:
@@ -288,7 +288,7 @@ class DirectedGraphGenerator(BaseGenerator):
     def assign_assets(self, entrypoint):
         """Has to be done before lateral edges are added"""
         children = self.graph.successors(entrypoint)
-        self.asset_count = 1 # Start from 1 since root is first asset
+        self.asset_count = 1  # Start from 1 since root is first asset
 
         mappings = {}
         for c in children:
@@ -333,7 +333,7 @@ class DirectedGraphGenerator(BaseGenerator):
         return len(flags)
 
     def node_to_string(self, node):
-        
+
         name = f"{self.graph.nodes[node]['asset']}.{node}"
 
         if "reward" in self.graph.nodes[node]:
@@ -354,7 +354,7 @@ class DirectedGraphGenerator(BaseGenerator):
             data["ttc"] = TTC_EASY
 
             if "reward" in attributes:
-                data["reward"] = attributes["reward"]           
+                data["reward"] = attributes["reward"]
 
             data["children"] = []
             for s in self.graph.successors(n):
@@ -363,10 +363,9 @@ class DirectedGraphGenerator(BaseGenerator):
             data["conditions"] = [str(attributes["asset"])]
 
             to_write[name] = data
-            
+
         with open(f"{filename}", "w") as f:
             yaml.dump(to_write, f)
-
 
     def add_more_assets(self):
         # high degree
@@ -374,7 +373,10 @@ class DirectedGraphGenerator(BaseGenerator):
         # many descendants with same asset as parent
 
         def node_has_high_out(node, descendants):
-            if self.graph.out_degree(node) > self.rng.integers(1, 5) and self.graph.in_degree(node) == 1:
+            if (
+                self.graph.out_degree(node) > self.rng.integers(1, 5)
+                and self.graph.in_degree(node) == 1
+            ):
                 self.graph.nodes[node]["asset"] = self.asset_count
                 for n in descendants:
                     self.graph.nodes[n]["asset"] = self.asset_count
@@ -390,7 +392,7 @@ class DirectedGraphGenerator(BaseGenerator):
         conditions = [node_has_high_out, node_has_many_children]
         for func in conditions:
             for node, attributes in self.graph.nodes.items():
-                
+
                 try:
                     parent = self.graph.successors(node).__next__()
                 except StopIteration:
@@ -403,14 +405,12 @@ class DirectedGraphGenerator(BaseGenerator):
                     pass
 
 
-
 def add_unique(path: list, item):
     if item not in path:
         path.append(item)
 
 
-class PathFinderAttacker():
-
+class PathFinderAttacker:
     def __init__(self, attack_graph: nx.DiGraph, start_node) -> None:
         self.attack_graph: nx.DiGraph = attack_graph
         self.total_path = []
@@ -422,11 +422,12 @@ class PathFinderAttacker():
             add_unique(self.total_path, p)
         return self.total_path
 
-
     def _find_path_to(self, target):
         ttc_cost = 0
 
-        path: list = nx.shortest_path(self.attack_graph, source=self.start_node, target=target, weight="ttc")
+        path: list = nx.shortest_path(
+            self.attack_graph, source=self.start_node, target=target, weight="ttc"
+        )
 
         # Check each step in the path.
         for node_id in path:
@@ -440,27 +441,17 @@ class PathFinderAttacker():
                     if p not in self.total_path:
                         path_to_parent, cost = self._find_path_to(p)
                         paths_to_parents.append((path_to_parent, cost))
-                
 
                 for p, _ in sorted(paths_to_parents, key=itemgetter(1)):
                     [add_unique(self.total_path, n) for n in p]
-                
+
             ttc_cost += step["ttc"]
             add_unique(self.total_path, node_id)
-        
 
         return path, ttc_cost
 
 
-def generate_graph(name, size, lateral_connections, num_flags):
-    pass
-
-
-
-def main(seed=888):
-
-    # seed=None
-
+def generate_graph(name, size, lateral_connections, num_flags, seed):
 
     log_level = logging.INFO
 
@@ -470,10 +461,6 @@ def main(seed=888):
     random.seed(seed)
 
     initial_step = 0
-    size = 200
-    lateral_connections = 50
-    num_flags = 20
-    graph_name="big"
 
     graph_generator = DirectedGraphGenerator(seed, size)
 
@@ -486,7 +473,6 @@ def main(seed=888):
     #     node = attack_graph.nodes()[node_key]
     #     if node["step_type"] == AND and len(list(attack_graph.predecessors(node_key))) == 1:
     #         attack_graph.add_node(node_key, step_type=OR)
-
 
     valid, _ = graph_generator.check_AND_reachability(initial_step)
 
@@ -502,7 +488,7 @@ def main(seed=888):
     num_flags = graph_generator.set_flags(initial_step, num_flags=num_flags)
 
     graph_generator.add_more_assets()
-    
+
     if lateral_connections > 0:
         graph_generator.create_lateral_connections(lateral_connections)
 
@@ -513,8 +499,7 @@ def main(seed=888):
     in_degress = attack_graph.in_degree()
     out_degrees = attack_graph.out_degree()
 
-
-    graph_generator.to_yaml(f"{graph_name}.yaml")
+    graph_generator.to_yaml(f"{name}.yaml")
 
     avg_in = 0
     avg_out = 0
@@ -546,13 +531,15 @@ def main(seed=888):
         f"The graph has {len(lengths)} shortest paths with an average length of {np.mean(lengths)} nodes. "
     )
 
-    #count assets
+    # count assets
 
     assets = set()
     for asset in nx.get_node_attributes(attack_graph, "asset").values():
         assets.add(asset)
 
-    logger.info(f"The graph contains {attack_graph.number_of_nodes()} steps with {len(assets)} assets.")
+    logger.info(
+        f"The graph contains {attack_graph.number_of_nodes()} steps with {len(assets)} assets."
+    )
 
     logger.info("The graph has %d flags.", num_flags)
 
@@ -560,16 +547,28 @@ def main(seed=888):
 
     attacker = PathFinderAttacker(attack_graph, start_node=0)
 
-    #path = attacker.find_path_to(72)
+    # path = attacker.find_path_to(72)
 
-    #print(path)
+    # print(path)
 
-    draw_graph(attack_graph, seed, f"{graph_name}.pdf")
+    draw_graph(attack_graph, seed, f"{name}.pdf")
 
-    with open(f"{graph_name}.json", "w") as f:
+    with open(f"{name}.json", "w") as f:
         json.dump(nx.node_link_data(attack_graph), f)
 
     pass
+
+
+def main(seed=888):
+
+    configs = [
+        dict(name="big", size=200, lateral_connections=50, num_flags=20,),
+        dict(name="medium", size=100, lateral_connections=25, num_flags=10,),
+        dict(name="small", size=50, lateral_connections=5, num_flags=5,),
+    ]
+
+    for config in configs:
+        generate_graph(**config, seed=seed)
 
 
 if __name__ == "__main__":
