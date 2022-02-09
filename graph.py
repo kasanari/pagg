@@ -30,11 +30,13 @@ REWARD_MEDIUM = "MEDIUM_FLAG_REWARD"
 REWARD_HARD = "HIGH_FLAG_REWARD"
 
 
-def draw_graph(graph, seed, outfile=None):
-    fig = plt.figure(figsize=(10, 10))
+def draw_graph(graph, seed, outfile=None, num_assets=None):
 
     lengths = list(nx.shortest_path_length(graph, source=0).values())
-    node_colors = list(nx.get_node_attributes(graph, "asset").values())
+    node_colors = np.array(list(nx.get_node_attributes(graph, "asset").values()))
+
+    #if num_assets is not None:
+    #    node_colors = node_colors / num_assets
 
     node_size = 300
     node_options = {
@@ -72,7 +74,7 @@ def draw_graph(graph, seed, outfile=None):
     nx.draw_networkx_edges(graph, pos, OR_edges, **edge_options)
     nx.draw_networkx_edges(graph, pos, AND_edges, style="dashed", **edge_options)
     nx.draw_networkx_nodes(
-        graph, pos, **node_options, cmap=plt.cm.get_cmap("tab20")
+        graph, pos, **node_options, cmap=plt.cm.get_cmap('gist_ncar')
     )  # default spring_layout
     nx.draw_networkx_labels(graph, pos, **label_options)
 
@@ -86,7 +88,38 @@ def draw_graph(graph, seed, outfile=None):
     else:
         plt.savefig(outfile)
 
+    plt.close()
 
+
+def draw_instance_model(graph, filename):
+    node_size = 300
+
+    node_colors = np.array(graph.nodes)
+
+    #node_colors = node_colors / len(node_colors)
+
+    options = {
+        "node_size": node_size,
+        "edgecolors": "black",
+        "node_color": node_colors,
+        "linewidths": 2,
+        "width": 2, 
+        "node_size": node_size,
+        "font_size": 9,
+    }
+
+    pos = nx.nx_pydot.graphviz_layout(graph, prog="dot")
+
+    nx.draw_networkx(graph, pos, **options, cmap=plt.cm.get_cmap('gist_ncar'))
+    ax = plt.gca()
+    ax.margins(0.20)
+    plt.axis("off")
+    if filename is None:
+        plt.show()
+    else:
+        plt.savefig(filename)
+
+    plt.close()
 class BaseGenerator:
     def __init__(self, seed, max_nodes) -> None:
         self.seed = seed
@@ -215,6 +248,8 @@ class GraphGenerator(BaseGenerator):
 class DirectedGraphGenerator(BaseGenerator):
     def __init__(self, seed, max_nodes):
         super().__init__(seed, max_nodes)
+        self.instance_model = nx.DiGraph()
+        self.asset_count = 0
 
     def select_next(self):
         nodes = list(self.graph.nodes)
@@ -224,7 +259,8 @@ class DirectedGraphGenerator(BaseGenerator):
 
         current_node = 0
         step_type = self.rng.choice([AND, OR])
-        self.graph.add_node(current_node, step_type=step_type, asset=0, ttc=10)
+        self.graph.add_node(current_node, step_type=step_type, asset=self.create_new_asset(), conditions={}, ttc=10)
+        self.instance_model.add_node(0)
         for n in range(1, self.max_nodes):
             step_type = self.rng.choice([AND, OR])
             child = self.select_next()
@@ -288,16 +324,19 @@ class DirectedGraphGenerator(BaseGenerator):
     def assign_assets(self, entrypoint):
         """Has to be done before lateral edges are added"""
         children = self.graph.successors(entrypoint)
-        self.asset_count = 1  # Start from 1 since root is first asset
 
         mappings = {}
+        conditions = {}
         for c in children:
-            mappings[c] = self.asset_count
+            new_asset = self.create_new_asset()
+            mappings[c] = new_asset
+            conditions[c] = {new_asset}
             for d in nx.descendants(self.graph, c):
-                mappings[d] = self.asset_count
-            self.asset_count += 1
+                mappings[d] = new_asset
+                conditions[d] = {new_asset}
 
         nx.set_node_attributes(self.graph, mappings, name="asset")
+        nx.set_node_attributes(self.graph, conditions, name="conditions")
 
     def set_flags(self, entrypoint, num_flags=None):
         flags = []
@@ -333,7 +372,6 @@ class DirectedGraphGenerator(BaseGenerator):
         return len(flags)
 
     def node_to_string(self, node):
-
         name = f"{self.graph.nodes[node]['asset']}.{node}"
 
         if "reward" in self.graph.nodes[node]:
@@ -360,34 +398,65 @@ class DirectedGraphGenerator(BaseGenerator):
             for s in self.graph.successors(n):
                 data["children"].append(self.node_to_string(s))
 
-            data["conditions"] = [str(attributes["asset"])]
+            data["conditions"] = [str(a) for a in attributes["conditions"]]
 
             to_write[name] = data
 
-        with open(f"{filename}", "w") as f:
+        with open(f"ag_{filename}", "w") as f:
             yaml.dump(to_write, f)
+
+
+        with open(f"instance_{filename}", "w") as f:
+            dependents= {}
+            for n in self.instance_model.nodes:
+                dependents[str(n)] = []
+                for d in nx.descendants(self.instance_model, n):
+                    dependents[str(n)].append(str(d)) 
+
+            yaml.dump(dependents, f)
+                
+    def create_new_asset(self, parent=None):
+        new_asset = self.asset_count
+        if parent is not None:
+                self.instance_model.add_edge(parent, new_asset)
+        else:
+            self.instance_model.add_node(new_asset)
+        self.asset_count += 1
+        return new_asset
+
 
     def add_more_assets(self):
         # high degree
         # parent is from same asset
         # many descendants with same asset as parent
 
+        def update_node(node, asset):
+            # Set the asset of the node
+            old_asset = self.graph.nodes[node]["asset"]
+            self.graph.nodes[node]["asset"] = asset
+            # Add the old asset as a condition
+            self.graph.nodes[node]["conditions"].add(old_asset)
+            self.graph.nodes[node]["conditions"].add(asset)
+
         def node_has_high_out(node, descendants):
             if (
-                self.graph.out_degree(node) > self.rng.integers(1, 5)
+                self.graph.out_degree(node) > 5
                 and self.graph.in_degree(node) == 1
             ):
-                self.graph.nodes[node]["asset"] = self.asset_count
+                old_asset = self.graph.nodes[node]["asset"]
+                new_asset = self.create_new_asset(old_asset)
+                update_node(node, new_asset)
                 for n in descendants:
-                    self.graph.nodes[n]["asset"] = self.asset_count
-                self.asset_count += 1
+                    update_node(n, new_asset)
+
 
         def node_has_many_children(node, descendants):
-            if len(descendants) > self.rng.integers(2, 3):
-                self.graph.nodes[node]["asset"] = self.asset_count
+            if len(descendants) > 5:
+                old_asset = self.graph.nodes[node]["asset"]
+                new_asset = self.create_new_asset(old_asset)
+                update_node(node, new_asset)
                 for n in descendants:
-                    self.graph.nodes[n]["asset"] = self.asset_count
-                self.asset_count += 1
+                    update_node(n, new_asset)
 
         conditions = [node_has_high_out, node_has_many_children]
         for func in conditions:
@@ -543,15 +612,18 @@ def generate_graph(name, size, lateral_connections, num_flags, seed):
 
     logger.info("The graph has %d flags.", num_flags)
 
-    json_data = nx.node_link_data(attack_graph)
-
-    attacker = PathFinderAttacker(attack_graph, start_node=0)
+    # attacker = PathFinderAttacker(attack_graph, start_node=0)
 
     # path = attacker.find_path_to(72)
 
     # print(path)
 
-    draw_graph(attack_graph, seed, f"{name}.pdf")
+    draw_graph(attack_graph, seed, f"ag_{name}.pdf", num_assets=graph_generator.instance_model.number_of_nodes())
+    draw_instance_model(graph_generator.instance_model, f"instance_{name}.pdf")
+
+    conditions = nx.get_node_attributes(attack_graph, "conditions")
+    conditions = {k : list(v) for k, v in conditions.items()}
+    nx.set_node_attributes(attack_graph, conditions, "conditions")
 
     with open(f"{name}.json", "w") as f:
         json.dump(nx.node_link_data(attack_graph), f)
@@ -562,9 +634,9 @@ def generate_graph(name, size, lateral_connections, num_flags, seed):
 def main(seed=888):
 
     configs = [
-        dict(name="big", size=200, lateral_connections=50, num_flags=20,),
-        dict(name="medium", size=100, lateral_connections=25, num_flags=10,),
         dict(name="small", size=50, lateral_connections=5, num_flags=5,),
+        dict(name="medium", size=100, lateral_connections=25, num_flags=10,),
+        dict(name="big", size=200, lateral_connections=50, num_flags=20,),
     ]
 
     for config in configs:
