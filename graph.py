@@ -22,6 +22,10 @@ import json
 AND = "AND"
 OR = "OR"
 
+ASSET = "asset"
+STEP_TYPE = "step_type"
+CONDITIONS = "conditions"
+
 TTC_EASY = "EASY_TTC"
 TTC_HARD = "HARD_TTC"
 
@@ -61,7 +65,7 @@ def draw_graph(graph, seed, outfile=None, num_assets=None):
     OR_edges = []
     AND_edges = []
     for p, c in graph.edges:
-        child_type = graph.nodes[c]["step_type"]
+        child_type = graph.nodes[c][STEP_TYPE]
 
         if child_type == OR:
             OR_edges.append((p, c))
@@ -186,7 +190,7 @@ class DirectedGraphGenerator(BaseGenerator):
         unreachable = []
         valid = True
         for node, attributes in self.graph.nodes().items():
-            if attributes["step_type"] == AND:
+            if attributes[STEP_TYPE] == AND:
                 required_steps = self.graph.predecessors(node)
                 for step in required_steps:
                     paths = nx.shortest_path(self.graph, source=entry_node, target=step)
@@ -199,7 +203,7 @@ class DirectedGraphGenerator(BaseGenerator):
     def set_edge_attributes(self):
 
         for node, attributes in self.graph.nodes().items():
-            step_type = attributes["step_type"]
+            step_type = attributes[STEP_TYPE]
             for predecessor in self.graph.predecessors(node):
                 self.graph.add_edge(predecessor, node, step_type=step_type)
 
@@ -217,8 +221,8 @@ class DirectedGraphGenerator(BaseGenerator):
                 mappings[d] = new_asset
                 conditions[d] = {new_asset}
 
-        nx.set_node_attributes(self.graph, mappings, name="asset")
-        nx.set_node_attributes(self.graph, conditions, name="conditions")
+        nx.set_node_attributes(self.graph, mappings, name=ASSET)
+        nx.set_node_attributes(self.graph, conditions, name=CONDITIONS)
 
     def set_flags(self, entrypoint, num_flags=None):
         flags = []
@@ -266,10 +270,10 @@ class DirectedGraphGenerator(BaseGenerator):
         for n, attributes in self.graph.nodes.items():
             name = self.node_to_string(n)
             data = {}
-            if attributes["step_type"] == AND:
-                data["step_type"] = "and"
-            elif attributes["step_type"] == OR:
-                data["step_type"] = "or"
+            if attributes[STEP_TYPE] == AND:
+                data[STEP_TYPE] = "and"
+            elif attributes[STEP_TYPE] == OR:
+                data[STEP_TYPE] = "or"
 
             data["ttc"] = TTC_EASY
 
@@ -280,7 +284,7 @@ class DirectedGraphGenerator(BaseGenerator):
             for s in self.graph.successors(n):
                 data["children"].append(self.node_to_string(s))
 
-            data["conditions"] = [str(a) for a in attributes["conditions"]]
+            data[CONDITIONS] = [a for a in attributes[CONDITIONS]]
 
             to_write[name] = data
 
@@ -314,11 +318,10 @@ class DirectedGraphGenerator(BaseGenerator):
 
         def update_node(node, asset):
             # Set the asset of the node
-            old_asset = self.graph.nodes[node]["asset"]
-            self.graph.nodes[node]["asset"] = asset
+            self.graph.nodes[node][ASSET] = asset
             # Add the old asset as a condition
-            self.graph.nodes[node]["conditions"].add(old_asset)
-            self.graph.nodes[node]["conditions"].add(asset)
+            self.graph.nodes[node][CONDITIONS].add(old_asset)
+            self.graph.nodes[node][CONDITIONS].add(asset)
 
         def node_has_high_out(node, descendants):
             if (
@@ -350,7 +353,7 @@ class DirectedGraphGenerator(BaseGenerator):
                     continue
                 parent_asset = self.graph.nodes[parent]["asset"]
                 descendants = nx.descendants(self.graph, node)
-                asset = attributes["asset"]
+                asset = attributes[ASSET]
                 if asset == parent_asset:
                     func(node, descendants)
                     pass
@@ -384,7 +387,7 @@ class PathFinderAttacker:
         for node_id in path:
             step = self.attack_graph.nodes[node_id]
             # If node is AND step, go to parents first.
-            if step["step_type"] == AND and node_id not in self.total_path:
+            if step[STEP_TYPE] == AND and node_id not in self.total_path:
                 parents = self.attack_graph.predecessors(node_id)
                 paths_to_parents = []
                 for p in parents:
@@ -422,7 +425,7 @@ def generate_graph(name, size, lateral_connections, num_flags, seed):
     # If an AND step only has one parent, consider it as an OR step
     # for node_key in attack_graph.nodes():
     #     node = attack_graph.nodes()[node_key]
-    #     if node["step_type"] == AND and len(list(attack_graph.predecessors(node_key))) == 1:
+    #     if node[STEP_TYPE] == AND and len(list(attack_graph.predecessors(node_key))) == 1:
     #         attack_graph.add_node(node_key, step_type=OR)
 
     valid, _ = graph_generator.check_AND_reachability(initial_step)
@@ -485,7 +488,7 @@ def generate_graph(name, size, lateral_connections, num_flags, seed):
     # count assets
 
     assets = set()
-    for asset in nx.get_node_attributes(attack_graph, "asset").values():
+    for asset in nx.get_node_attributes(attack_graph, ASSET).values():
         assets.add(asset)
 
     logger.info(
@@ -503,9 +506,9 @@ def generate_graph(name, size, lateral_connections, num_flags, seed):
     draw_graph(attack_graph, seed, f"ag_{name}.pdf", num_assets=graph_generator.instance_model.number_of_nodes())
     draw_instance_model(graph_generator.instance_model, f"instance_{name}.pdf")
 
-    conditions = nx.get_node_attributes(attack_graph, "conditions")
+    conditions = nx.get_node_attributes(attack_graph, CONDITIONS)
     conditions = {k : list(v) for k, v in conditions.items()}
-    nx.set_node_attributes(attack_graph, conditions, "conditions")
+    nx.set_node_attributes(attack_graph, conditions, CONDITIONS)
 
     with open(f"{name}.json", "w") as f:
         json.dump(nx.node_link_data(attack_graph), f)
