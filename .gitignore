@@ -3,3 +3,9 @@
 *.yaml
 *.csv
 __pycache__
+.idea
+*.pdf
+*.json
+*.yaml
+*.zip
+*.sqlite3
