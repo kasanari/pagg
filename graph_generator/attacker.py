@@ -1,15 +1,21 @@
-import networkx as nx
-from .graph import AND, STEP_TYPE
 from operator import itemgetter
+from typing import List
+
+import networkx as nx
+from networkx.algorithms.shortest_paths.generic import shortest_path
+
+from .constants import AND, STEP_TYPE
+
 
 def add_unique(path: list, item):
     if item not in path:
         path.append(item)
 
+
 class PathFinderAttacker:
     def __init__(self, attack_graph: nx.DiGraph, start_node) -> None:
         self.attack_graph: nx.DiGraph = attack_graph
-        self.total_path = []
+        self.total_path: List[int] = []
         self.start_node = start_node
 
     def find_path_to(self, target):
@@ -21,9 +27,7 @@ class PathFinderAttacker:
     def _find_path_to(self, target):
         ttc_cost = 0
 
-        path: list = nx.shortest_path(
-            self.attack_graph, source=self.start_node, target=target, weight="ttc"
-        )
+        path: list = shortest_path(self.attack_graph, source=self.start_node, target=target, weight="ttc")
 
         # Check each step in the path.
         for node_id in path:
@@ -39,7 +43,8 @@ class PathFinderAttacker:
                         paths_to_parents.append((path_to_parent, cost))
 
                 for p, _ in sorted(paths_to_parents, key=itemgetter(1)):
-                    [add_unique(self.total_path, n) for n in p]
+                    for n in p:
+                        add_unique(self.total_path, n)
 
             ttc_cost += step["ttc"]
             add_unique(self.total_path, node_id)
