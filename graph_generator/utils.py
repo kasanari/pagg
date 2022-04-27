@@ -1,4 +1,4 @@
-import json
+import yaml
 from typing import TextIO
 from itertools import filterfalse
 
@@ -18,26 +18,41 @@ def validate_graph(graph: nx.DiGraph, entrypoint):
 
 
 def save_to_file(attack_graph: AttackGraph, instance_model: InstanceModel, file_pointer: TextIO):
-    to_save = [
+    ag = [
         {
-            STEP_TYPE: step.step_type,
+            "step_type": step.step_type,
             "ttc": TTC_EASY,
-            "reward": step.reward if step.reward != 0 else None,
-            "links": [node_to_string(attack_graph, instance_model, s) for s in attack_graph.children(step.id)],
-            "objclass": instance_model.get_asset_type(attack_graph[step.id].asset),
+            "reward": step.reward if step.reward != 0 else 0,
+            "children": [node_to_string(attack_graph, instance_model, s) for s in attack_graph.children(step.id)],
+            "asset": instance_model.get_asset_type(attack_graph[step.id].asset),
             "id": node_to_string(attack_graph, instance_model, step.id),
-            "atkname": step.id,
+            "name": step.id,
         }
         for step in attack_graph
     ]
 
-    json.dump(to_save, file_pointer, indent=" ")
+    im = [
+        {
+            "id": asset.id,
+            "dependents": [a for a in nx.descendants(instance_model.graph, asset.id)]
+        }
+        for asset in instance_model
+    ]
+
+    to_save = {
+        "attack_graph": ag,
+        "instance_model": im
+    }
+
+    yaml.dump(to_save, file_pointer)
 
 
 def node_to_string(attack_graph: AttackGraph, instance_model: InstanceModel, node):
     asset_str = instance_model.asset_to_string(attack_graph[node].asset)
 
-    if attack_graph[node].reward != 0:
+    if attack_graph[node].step_type == DEFENSE:
+        name = f"{asset_str}:defend"
+    elif attack_graph[node].reward != 0:
         name = f"{asset_str}:take"
     else:
         name = f"{asset_str}:{node}"

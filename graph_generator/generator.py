@@ -33,11 +33,11 @@ class GraphGenerator:
     def generate_initial_graph(self):
         # Create root step
         self.graph.add_step(
-            step_type=self.rng.choice([AND, OR]),
+            step_type=str(self.rng.choice([AND, OR])),
             asset=self.instance_model.add_asset(obj_class="internet", unmalleable=True),
         )
         return [
-            self.graph.add_step(step_type=self.rng.choice([AND, OR]), parent=self.select_next())
+            self.graph.add_step(step_type=str(self.rng.choice([AND, OR])), parent=self.select_next())
             for _ in range(1, self.max_nodes)
         ]
 
@@ -127,26 +127,38 @@ class GraphGenerator:
     def node_to_string(self, node):
         utils.node_to_string(self.graph, self.instance_model, node)
 
-    def add_defense_steps(self, attack_graph: AttackGraph, instance_model: InstanceModel):
-        assets = list(instance_model)
-        defense_asset = instance_model.add_asset(unmalleable=True)
+    def add_defense_steps(self, attack_graph: AttackGraph, instance_model: InstanceModel, add_attack_steps=False):
+
+        all_assets = list(instance_model)
+        assets = set(nx.get_node_attributes(attack_graph.graph, "asset").values())
+
+        #defense_asset = instance_model.add_asset(unmalleable=True)
         defense_steps = [
             (
                 attack_graph.add_step(
                     step_type=DEFENSE,
-                    asset=defense_asset,
-                    reward=self.instance_model.calculate_defense_cost(asset.id),
-                    assets_disabled=[descendant for descendant in nx.descendants(self.instance_model.graph, asset.id)],
+                    asset=None,
+                    reward=self.instance_model.calculate_defense_cost(asset),
+                    assets_disabled=list(nx.descendants(self.instance_model.graph, asset)),
                 ),
-                get_all_attack_steps_for_asset(attack_graph, instance_model, asset.id),
-                asset.id,
+                get_all_attack_steps_for_asset(attack_graph, instance_model, asset),
+                asset,
             )
             for asset in assets
-            if not asset.unmalleable
+            if not all_assets[asset].unmalleable
         ]
 
-        for step, attack_steps, asset_id in defense_steps:
-            utils.attach_defense_step_to_graph(attack_graph, step, attack_steps, asset_id)
+        if add_attack_steps:
+            for step, attack_steps, asset_id in defense_steps:
+                utils.attach_defense_step_to_graph(attack_graph, step, attack_steps, asset_id)
+        else:
+            for step, attack_steps, asset_id in defense_steps:
+                for attack_step in attack_steps:
+                    attack_graph.graph.add_edge(step, attack_step)
+
+
+        defense_assets = {node: asset for node, _, asset in defense_steps} 
+        nx.set_node_attributes(attack_graph.graph, defense_assets, name=ASSET)
 
         return defense_steps
 
@@ -237,7 +249,7 @@ def generate_graph(name, size, lateral_connections, num_flags, seed):
     mean_in_degress = np.mean(attack_graph.graph.in_degree())
     mean_out_degrees = np.mean(attack_graph.graph.out_degree())
 
-    with open(f"model_{name}.json", "w", encoding="utf-8") as f:
+    with open(f"model_{name}.yaml", "w", encoding="utf-8") as f:
         utils.save_to_file(attack_graph, instance_model, f)
 
     logger.info("Nodes have %f incoming edges, and %f outgoing edges on average.", mean_in_degress, mean_out_degrees)
