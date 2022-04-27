@@ -59,7 +59,7 @@ def draw_attack_graph(attack_graph: AttackGraph, _, outfile=None):
         elif child_type == AND:
             AND_edges.append((p, c))
         else:
-            raise Exception("Invalid child type")
+            raise Exception(f"Invalid child type {child_type}")
 
     attack_steps = [step.id for step in attack_graph.attack_steps]
     defense_steps = [step.id for step in attack_graph.defense_steps]
