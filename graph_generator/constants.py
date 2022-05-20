@@ -1,6 +1,6 @@
-AND = "AND"
-OR = "OR"
-DEFENSE = "DEFENSE"
+AND = "and"
+OR = "or"
+DEFENSE = "defense"
 
 ASSET = "asset"
 STEP_TYPE = "step_type"
