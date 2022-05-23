@@ -1,6 +1,7 @@
 from itertools import permutations
 import json
 import logging
+from pathlib import Path
 import random
 from typing import Tuple
 
@@ -8,6 +9,7 @@ import networkx as nx
 import numpy as np
 from networkx.algorithms.shortest_paths.generic import shortest_path
 from numpy.random import Generator, default_rng
+import scipy.stats as stats
 
 from . import utils
 from .constants import *
@@ -17,7 +19,7 @@ from .graph import InstanceModel, AttackGraph
 
 
 class GraphGenerator:
-    def __init__(self, seed, max_nodes):
+    def __init__(self, seed, max_nodes, mu):
         self.seed = seed
         self.rng: Generator = default_rng(seed)
         self.max_nodes = max_nodes
@@ -25,19 +27,29 @@ class GraphGenerator:
         self.graph = AttackGraph()
         self.instance_model = InstanceModel()
         self.logger = logging.getLogger("generator")
+        self.fitness = stats.binom.pmf(np.arange(max_nodes), n=max_nodes, p=mu / max_nodes)
 
-    def select_next(self):
+    def select_next(self, mode=None):
         nodes = self.graph.steps
-        return int(self.rng.choice(nodes))
+
+        if len(degrees) == 1 or mode is None:
+            weights = None
+        else:
+            degrees = np.array([degree for _, degree in self.graph.graph.degree()])
+            fitness = self.fitness[: len(nodes)]
+            weights = (degrees * fitness) / np.sum(degrees * fitness)
+
+        return int(self.rng.choice(nodes, p=weights))
 
     def generate_initial_graph(self):
         # Create root step
+        root_asset = self.instance_model.add_asset(obj_class="internet", unmalleable=True)
         self.graph.add_step(
             step_type=str(self.rng.choice([AND, OR])),
-            asset=self.instance_model.add_asset(obj_class="internet", unmalleable=True),
+            asset=root_asset,
         )
         return [
-            self.graph.add_step(step_type=str(self.rng.choice([AND, OR])), parent=self.select_next())
+            self.graph.add_step(step_type=str(self.rng.choice([AND, OR])), parent=self.select_next(), asset=root_asset)
             for _ in range(1, self.max_nodes)
         ]
 
@@ -132,7 +144,7 @@ class GraphGenerator:
         all_assets = list(instance_model)
         assets = set(nx.get_node_attributes(attack_graph.graph, "asset").values())
 
-        #defense_asset = instance_model.add_asset(unmalleable=True)
+        # defense_asset = instance_model.add_asset(unmalleable=True)
         defense_steps = [
             (
                 attack_graph.add_step(
@@ -156,8 +168,7 @@ class GraphGenerator:
                 for attack_step in attack_steps:
                     attack_graph.graph.add_edge(step, attack_step)
 
-
-        defense_assets = {node: asset for node, _, asset in defense_steps} 
+        defense_assets = {node: asset for node, _, asset in defense_steps}
         nx.set_node_attributes(attack_graph.graph, defense_assets, name=ASSET)
 
         return defense_steps
@@ -199,10 +210,10 @@ class GraphGenerator:
 
     @classmethod
     def generate_attack_graph(
-        cls, seed, size, lateral_connections, num_flags, add_defense_steps=True
+        cls, seed, size, lateral_connections, num_flags, mu, add_defense_steps=True
     ) -> Tuple[AttackGraph, InstanceModel]:
 
-        generator = cls(seed, size)
+        generator = cls(seed, size, mu)
         generator.generate_initial_graph()
         generator.assign_assets()
         generator.add_more_assets()
@@ -222,9 +233,17 @@ class GraphGenerator:
         return (generator.graph, generator.instance_model)
 
 
-def generate_graph(name, size, lateral_connections, num_flags, seed):
+def generate_graph(name, size, lateral_connections, num_flags, add_defense, seed, mu):
 
     log_level = logging.INFO
+
+    graph_folder = Path("graphs")
+
+    if not graph_folder.exists():
+        graph_folder.mkdir()
+
+    yaml_path = graph_folder / f"model_{name}.yaml"
+    img_path = graph_folder / f"ag_{name}.png"
 
     logging.basicConfig(level=log_level)
     logger = logging.getLogger("main")
@@ -232,7 +251,7 @@ def generate_graph(name, size, lateral_connections, num_flags, seed):
     random.seed(seed)
 
     attack_graph, instance_model = GraphGenerator.generate_attack_graph(
-        seed, size, lateral_connections, num_flags, add_defense_steps=True
+        seed, size, lateral_connections, num_flags, mu, add_defense_steps=add_defense
     )
 
     reachable, acyclic = utils.validate_graph(attack_graph.graph, attack_graph.entrypoint)
@@ -249,7 +268,7 @@ def generate_graph(name, size, lateral_connections, num_flags, seed):
     mean_in_degress = np.mean(attack_graph.graph.in_degree())
     mean_out_degrees = np.mean(attack_graph.graph.out_degree())
 
-    with open(f"model_{name}.yaml", "w", encoding="utf-8") as f:
+    with open(yaml_path, "w", encoding="utf-8") as f:
         utils.save_to_file(attack_graph, instance_model, f)
 
     logger.info("Nodes have %f incoming edges, and %f outgoing edges on average.", mean_in_degress, mean_out_degrees)
@@ -274,13 +293,13 @@ def generate_graph(name, size, lateral_connections, num_flags, seed):
 
     logger.info("Graph has %d flags.", num_flags)
 
-    draw_attack_graph(attack_graph, seed, f"ag_{name}.pdf")
+    draw_attack_graph(attack_graph, seed, img_path)
 
-    draw_instance_model(instance_model.graph, f"instance_{name}.pdf")
+    # draw_instance_model(instance_model.graph, f"instance_{name}.pdf")
 
-    conditions = nx.get_node_attributes(attack_graph.graph, CONDITIONS)
-    conditions = {k: list(v) for k, v in conditions.items()}
-    nx.set_node_attributes(attack_graph.graph, conditions, CONDITIONS)
+    # conditions = nx.get_node_attributes(attack_graph.graph, CONDITIONS)
+    # conditions = {k: list(v) for k, v in conditions.items()}
+    # nx.set_node_attributes(attack_graph.graph, conditions, CONDITIONS)
 
-    with open(f"nx_{name}.json", "w", encoding="utf8") as f:
-        json.dump(nx.node_link_data(attack_graph.graph), f)
+    # with open(f"nx_{name}.json", "w", encoding="utf8") as f:
+    #    json.dump(nx.node_link_data(attack_graph.graph), f)
