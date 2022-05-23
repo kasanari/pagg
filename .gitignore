@@ -9,3 +9,5 @@ __pycache__
 *.yaml
 *.zip
 *.sqlite3
+graphs
+*.egg-info
