@@ -8,6 +8,16 @@ from networkx.algorithms.shortest_paths.generic import shortest_path
 from .constants import *
 from .graph import AttackGraph, InstanceModel
 
+ttc_mappings = {
+    0 : TTC_DEFAULT
+}
+
+reward_mappings = {
+    0: REWARD_DEFAULT,
+    1: REWARD_EASY,
+    2: REWARD_MEDIUM,
+    3: REWARD_HARD
+}
 
 def validate_graph(graph: nx.DiGraph, entrypoint):
     reachable, _ = check_AND_reachability(graph, entrypoint)
@@ -21,8 +31,8 @@ def save_to_file(attack_graph: AttackGraph, instance_model: InstanceModel, file_
     ag = [
         {
             "step_type": step.step_type,
-            "ttc": TTC_EASY,
-            "reward": step.reward if step.reward != 0 else 0,
+            "ttc": ttc_mappings[step.ttc],
+            "reward": reward_mappings[step.reward] if step.step_type != DEFENSE else step.reward,
             "children": [node_to_string(attack_graph, instance_model, s) for s in attack_graph.children(step.id)],
             "asset": instance_model.get_asset_type(attack_graph[step.id].asset),
             "id": node_to_string(attack_graph, instance_model, step.id),
@@ -39,9 +49,14 @@ def save_to_file(attack_graph: AttackGraph, instance_model: InstanceModel, file_
         for asset in instance_model
     ]
 
+    flags = {
+        node_to_string(attack_graph, instance_model, step.id) : reward_mappings[step.reward] for step in attack_graph if step.is_flag
+    }
+
     to_save = {
         "attack_graph": ag,
-        "instance_model": im
+        "instance_model": im,
+        "flags": flags
     }
 
     yaml.dump(to_save, file_pointer)
@@ -52,7 +67,7 @@ def node_to_string(attack_graph: AttackGraph, instance_model: InstanceModel, nod
 
     if attack_graph[node].step_type == DEFENSE:
         name = f"{asset_str}:defend"
-    elif attack_graph[node].reward != 0:
+    elif attack_graph[node].is_flag:
         name = f"{asset_str}:take"
     else:
         name = f"{asset_str}:{node}"

@@ -11,11 +11,15 @@ from .constants import *
 class AttackStep:
     id: int
     step_type: str
-    ttc: int
     asset: int
+    ttc: int = 0
     reward: int = 0
     assets_disabled: List[int] = field(default_factory=list)
     conditions: Set[int] = field(default_factory=set)
+
+    @property
+    def is_flag(self):
+        return self.reward != 0 and self.step_type != DEFENSE
 
 
 @dataclass
@@ -66,7 +70,7 @@ class AttackGraph:
         self.step_count = 0
         self.entrypoint = 0
 
-    def add_step(self, step_type, parent=None, asset=None, ttc=10, reward=0, assets_disabled=None):
+    def add_step(self, step_type, parent=None, asset=None, ttc=0, reward=0, assets_disabled=None):
         new_step = self.step_count
         self.graph.add_node(
             new_step, step_type=step_type, ttc=ttc, asset=asset, reward=reward, assets_disabled=assets_disabled

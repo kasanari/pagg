@@ -32,10 +32,10 @@ class GraphGenerator:
     def select_next(self, mode=None):
         nodes = self.graph.steps
 
+        degrees = np.array([degree for _, degree in self.graph.graph.degree()])
         if len(degrees) == 1 or mode is None:
             weights = None
         else:
-            degrees = np.array([degree for _, degree in self.graph.graph.degree()])
             fitness = self.fitness[: len(nodes)]
             weights = (degrees * fitness) / np.sum(degrees * fitness)
 
@@ -98,6 +98,11 @@ class GraphGenerator:
 
     def set_flags(self, num_flags):
 
+        # These are just template indexes, not the actual reward values
+        easy_reward = 1
+        medium_reward = 2
+        hard_reward = 3
+
         if num_flags == 0:
             return 0
 
@@ -123,10 +128,10 @@ class GraphGenerator:
 
         def get_reward(distance):
             if distance <= medium_bar:
-                return REWARD_EASY
+                return easy_reward
             if distance <= hard_bar:
-                return REWARD_MEDIUM
-            return REWARD_HARD
+                return medium_reward
+            return hard_reward
 
         flags_with_rewards = {f: get_reward(distance) for f, distance in distances.items()}
 

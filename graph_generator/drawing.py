@@ -63,7 +63,7 @@ def draw_attack_graph(attack_graph: AttackGraph, _, outfile=None):
 
     attack_steps = [step.id for step in attack_graph.attack_steps]
     defense_steps = [step.id for step in attack_graph.defense_steps]
-    flag_steps = [step for step, attributes in graph.nodes.items() if attributes["reward"] != 0]
+    flag_steps = [step for step, attributes in graph.nodes.items() if attributes["reward"] != 0 and attributes["step_type"] != DEFENSE]
 
     plt.figure(figsize=(32, 18))
     nx.draw_networkx_edges(graph, pos, edgelist=OR_edges, **edge_options)
