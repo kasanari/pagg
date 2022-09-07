@@ -1,5 +1,4 @@
 from itertools import permutations
-import json
 import logging
 from pathlib import Path
 import random
@@ -11,15 +10,15 @@ from networkx.algorithms.shortest_paths.generic import shortest_path
 from numpy.random import Generator, default_rng
 import scipy.stats as stats
 
-from . import utils
 from .constants import *
-from .drawing import draw_attack_graph, draw_instance_model
-from .utils import get_all_attack_steps_for_asset
+from .drawing import draw_attack_graph
+from .graph_utils import get_all_attack_steps_for_asset
 from .graph import InstanceModel, AttackGraph
+from graph_generator import graph_utils, nx_utils
 
 
 class GraphGenerator:
-    def __init__(self, seed, max_nodes, mu):
+    def __init__(self, seed, max_nodes, mode="random", mu=0):
         self.seed = seed
         self.rng: Generator = default_rng(seed)
         self.max_nodes = max_nodes
@@ -28,12 +27,13 @@ class GraphGenerator:
         self.instance_model = InstanceModel()
         self.logger = logging.getLogger("generator")
         self.fitness = stats.binom.pmf(np.arange(max_nodes), n=max_nodes, p=mu / max_nodes)
+        self.mode = mode
 
-    def select_next(self, mode=None):
+    def select_next(self):
         nodes = self.graph.steps
 
         degrees = np.array([degree for _, degree in self.graph.graph.degree()])
-        if len(degrees) == 1 or mode is None:
+        if len(degrees) == 1 or self.mode == "random":
             weights = None
         else:
             fitness = self.fitness[: len(nodes)]
@@ -56,6 +56,7 @@ class GraphGenerator:
     def create_lateral_connections(self, num_connections):
         graph: AttackGraph = self.graph
         all_nodes = set(graph.steps)
+
         eligible_to_connect = list(
             filter(lambda node: not (node == self.entrypoint or graph.graph.out_degree(node) == 0), graph.steps)
         )
@@ -70,10 +71,7 @@ class GraphGenerator:
             descendants = nx.descendants(graph.graph, node)
             potential_connections = list(all_nodes - descendants - {node, self.entrypoint})
             if len(potential_connections) == 0:
-                raise RuntimeError(
-                    "Can not find any viable nodes to connect laterally!"
-                    "Either add more nodes or decrease the number of lateral connections."
-                )
+                return
             new_child = self.rng.choice(potential_connections)
             self.logger.info("Added edge %d -> %d", new_child, node)
             self.graph.graph.add_edge(int(new_child), int(node))
@@ -97,7 +95,7 @@ class GraphGenerator:
         nx.set_node_attributes(self.graph.graph, conditions, name=CONDITIONS)
 
     def set_flags(self, num_flags):
-
+        """Set the flags for the graph. This is done after the graph is generated"""
         # These are just template indexes, not the actual reward values
         easy_reward = 1
         medium_reward = 2
@@ -142,10 +140,16 @@ class GraphGenerator:
         return len(flags)
 
     def node_to_string(self, node):
-        utils.node_to_string(self.graph, self.instance_model, node)
+        """Convert a node to a string representation"""
+        graph_utils.node_to_string(self.graph, self.instance_model, node)
 
     def add_defense_steps(self, attack_graph: AttackGraph, instance_model: InstanceModel, add_attack_steps=False):
-
+        """
+        Adds defense steps to the graph.
+        :param attack_graph: The graph to add defense steps to.
+        :param instance_model: The instance model to use for the defense steps.
+        :param add_attack_steps: Whether to add additional attack steps to the graph.
+        """
         all_assets = list(instance_model)
         assets = set(nx.get_node_attributes(attack_graph.graph, "asset").values())
 
@@ -167,7 +171,7 @@ class GraphGenerator:
 
         if add_attack_steps:
             for step, attack_steps, asset_id in defense_steps:
-                utils.attach_defense_step_to_graph(attack_graph, step, attack_steps, asset_id)
+                graph_utils.attach_defense_step_to_graph(attack_graph, step, attack_steps, asset_id)
         else:
             for step, attack_steps, asset_id in defense_steps:
                 for attack_step in attack_steps:
@@ -215,10 +219,10 @@ class GraphGenerator:
 
     @classmethod
     def generate_attack_graph(
-        cls, seed, size, lateral_connections, num_flags, mu, add_defense_steps=True
+        cls, seed, size, lateral_connections, num_flags, mode, mu, add_defense_steps=True
     ) -> Tuple[AttackGraph, InstanceModel]:
 
-        generator = cls(seed, size, mu)
+        generator = cls(seed, size, mode, mu)
         generator.generate_initial_graph()
         generator.assign_assets()
         generator.add_more_assets()
@@ -238,7 +242,7 @@ class GraphGenerator:
         return (generator.graph, generator.instance_model)
 
 
-def generate_graph(name, size, lateral_connections, num_flags, add_defense, seed, mu):
+def generate_graph(name, size, lateral_connections, num_flags, add_defense, seed, mode, mu):
 
     log_level = logging.INFO
 
@@ -256,10 +260,10 @@ def generate_graph(name, size, lateral_connections, num_flags, add_defense, seed
     random.seed(seed)
 
     attack_graph, instance_model = GraphGenerator.generate_attack_graph(
-        seed, size, lateral_connections, num_flags, mu, add_defense_steps=add_defense
+        seed, size, lateral_connections, num_flags, mode, mu, add_defense_steps=add_defense
     )
 
-    reachable, acyclic = utils.validate_graph(attack_graph.graph, attack_graph.entrypoint)
+    reachable, acyclic = nx_utils.validate_graph(attack_graph.graph, attack_graph.entrypoint)
 
     if not reachable:
         logger.warning("Not all AND steps are reachable from entrypoint.")
@@ -274,7 +278,7 @@ def generate_graph(name, size, lateral_connections, num_flags, add_defense, seed
     mean_out_degrees = np.mean(attack_graph.graph.out_degree())
 
     with open(yaml_path, "w", encoding="utf-8") as f:
-        utils.save_to_file(attack_graph, instance_model, f)
+        graph_utils.save_to_file(attack_graph, instance_model, f)
 
     logger.info("Nodes have %f incoming edges, and %f outgoing edges on average.", mean_in_degress, mean_out_degrees)
 

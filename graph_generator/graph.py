@@ -3,7 +3,7 @@ from typing import List, Set
 
 import networkx as nx
 
-from . import utils
+from . import nx_utils
 from .constants import *
 
 
@@ -16,6 +16,7 @@ class AttackStep:
     reward: int = 0
     assets_disabled: List[int] = field(default_factory=list)
     conditions: Set[int] = field(default_factory=set)
+    name: str = ""
 
     @property
     def is_flag(self):
@@ -26,8 +27,8 @@ class AttackStep:
 class Asset:
     id: int
     is_flag: bool
-    obj_class: str
     unmalleable: bool
+    obj_class: str = "asset"
 
 
 class InstanceModel:
@@ -44,20 +45,20 @@ class InstanceModel:
         return new_asset
 
     def __getitem__(self, node):
-        return Asset(node, **self.graph.nodes[node])
+        return Asset(id=node, **self.graph.nodes[node])
 
     def __iter__(self):
-        return (Asset(key, **values) for key, values in self.graph.nodes.items())
+        return (Asset(id=key, **values) for key, values in self.graph.nodes.items())
 
     def calculate_defense_cost(self, asset):
         return len(nx.descendants(self.graph, asset)) + 1
 
     def get_asset_type(self, asset):
         if self[asset].is_flag:
-            obj_type = "flag"
-        else:
-            obj_type = "asset"
-        return obj_type
+            return "flag"
+        
+        return self[asset].obj_class
+
 
     def asset_to_string(self, asset):
         obj_type = self.get_asset_type(asset)
@@ -70,10 +71,10 @@ class AttackGraph:
         self.step_count = 0
         self.entrypoint = 0
 
-    def add_step(self, step_type, parent=None, asset=None, ttc=0, reward=0, assets_disabled=None):
+    def add_step(self, step_type, parent=None, asset=None, ttc=0, reward=0, assets_disabled=None, name=""):
         new_step = self.step_count
         self.graph.add_node(
-            new_step, step_type=step_type, ttc=ttc, asset=asset, reward=reward, assets_disabled=assets_disabled
+            new_step, step_type=step_type, ttc=ttc, asset=asset, reward=reward, assets_disabled=assets_disabled, name=name
         )
         if parent is not None:
             self.graph.add_edge(parent, new_step, ttc=ttc)
@@ -81,10 +82,10 @@ class AttackGraph:
         return new_step
 
     def __iter__(self):
-        return (AttackStep(key, **values) for key, values in self.graph.nodes.items())
+        return (AttackStep(id=key, **values) for key, values in self.graph.nodes.items())
 
     def __getitem__(self, node):
-        return AttackStep(node, **self.graph.nodes[node])
+        return AttackStep(id=node, **self.graph.nodes[node])
 
     def children(self, node):
         return self.graph.successors(node)
@@ -102,7 +103,7 @@ class AttackGraph:
         return sorted(self.graph.nodes)
 
     def check_AND_reachability(self):
-        return utils.check_AND_reachability(self.graph, self.entrypoint)
+        return nx_utils.check_AND_reachability(self.graph, self.entrypoint)
 
     def update_step(self, node: int, new_asset: int):
         # Set the asset of the node

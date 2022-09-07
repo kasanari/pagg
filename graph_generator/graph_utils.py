@@ -1,42 +1,28 @@
 import yaml
 from typing import TextIO
-from itertools import filterfalse
 
 import networkx as nx
-from networkx.algorithms.shortest_paths.generic import shortest_path
 
 from .constants import *
 from .graph import AttackGraph, InstanceModel
-
-ttc_mappings = {
-    0 : TTC_DEFAULT
-}
 
 reward_mappings = {
     0: REWARD_DEFAULT,
     1: REWARD_EASY,
     2: REWARD_MEDIUM,
-    3: REWARD_HARD
+    3: REWARD_HARD,
 }
-
-def validate_graph(graph: nx.DiGraph, entrypoint):
-    reachable, _ = check_AND_reachability(graph, entrypoint)
-
-    acyclic = nx.is_directed_acyclic_graph(graph)
-
-    return reachable, acyclic
-
 
 def save_to_file(attack_graph: AttackGraph, instance_model: InstanceModel, file_pointer: TextIO):
     ag = [
         {
             "step_type": step.step_type,
-            "ttc": ttc_mappings[step.ttc],
+            "ttc": step.ttc,
             "reward": reward_mappings[step.reward] if step.step_type != DEFENSE else step.reward,
             "children": [node_to_string(attack_graph, instance_model, s) for s in attack_graph.children(step.id)],
             "asset": instance_model.get_asset_type(attack_graph[step.id].asset),
             "id": node_to_string(attack_graph, instance_model, step.id),
-            "name": step.id,
+            "name": step.id if step.name == "" else step.name,
         }
         for step in attack_graph
     ]
@@ -64,36 +50,15 @@ def save_to_file(attack_graph: AttackGraph, instance_model: InstanceModel, file_
 
 def node_to_string(attack_graph: AttackGraph, instance_model: InstanceModel, node):
     asset_str = instance_model.asset_to_string(attack_graph[node].asset)
+    
+    node_name = attack_graph[node].name
 
     if attack_graph[node].step_type == DEFENSE:
-        name = f"{asset_str}:defend"
+        node_name = "defend"
     elif attack_graph[node].is_flag:
-        name = f"{asset_str}:take"
-    else:
-        name = f"{asset_str}:{node}"
+        node_name = "take"
 
-    return name
-
-
-def check_AND_reachability(graph: nx.DiGraph, entry_node):
-    def step_is_reachable(node):
-        try:
-            shortest_path(graph, source=entry_node, target=node)
-        except nx.NetworkXNoPath:
-            return False
-        return True
-
-    def conditions_reachable(node):
-        return (
-            step_is_reachable(parent)
-            for parent in graph.predecessors(node)
-            if graph.nodes[parent][STEP_TYPE] != DEFENSE
-        )
-
-    unreachable = filterfalse(lambda node: all(conditions_reachable(node)), graph.nodes)
-
-    return len(list(unreachable)) == 0, unreachable
-
+    return f"{asset_str}:{node_name}:{node}"
 
 def get_all_attack_steps_for_asset(attack_graph: AttackGraph, instance_model: InstanceModel, asset: int):
     return {node.id for node in attack_graph if node.asset == asset}.union(
