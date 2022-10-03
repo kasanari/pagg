@@ -252,7 +252,7 @@ def generate_graph(name, size, lateral_connections, num_flags, add_defense, seed
         graph_folder.mkdir()
 
     yaml_path = graph_folder / f"model_{name}.yaml"
-    img_path = graph_folder / f"ag_{name}.png"
+    img_path = graph_folder / f"ag_{name}.pdf"
 
     logging.basicConfig(level=log_level)
     logger = logging.getLogger("main")
