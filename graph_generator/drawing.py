@@ -10,7 +10,7 @@ def draw_attack_graph(attack_graph: AttackGraph, _, outfile=None):
 
     graph: nx.DiGraph = attack_graph.graph
     #lengths = list(nx.shortest_path_length(graph, source=0).values())
-    attack_node_colors = [step.asset for step in attack_graph if step.step_type != DEFENSE]
+    attack_node_colors = [step.asset for step in attack_graph.attack_steps if not step.is_flag]
 
     # if num_assets is not None:
     #    node_colors = node_colors / num_assets
@@ -47,7 +47,7 @@ def draw_attack_graph(attack_graph: AttackGraph, _, outfile=None):
     #pos = nx.spring_layout(graph, k=10, iterations=1000, fixed=[0], pos={0:(0,0)}, center=(0,0), seed=seed)
     # pos = nx.planar_layout(graph, scale=10)
     # pos = nx.spectral_layout(graph)
-    pos = nx.nx_pydot.graphviz_layout(graph, root=0, prog="sfdp")
+    pos = nx.nx_pydot.graphviz_layout(graph, root=0, prog="dot")
 
     OR_edges = []
     AND_edges = []
@@ -61,11 +61,13 @@ def draw_attack_graph(attack_graph: AttackGraph, _, outfile=None):
         else:
             raise Exception(f"Invalid child type {child_type}")
 
-    attack_steps = [step.id for step in attack_graph.attack_steps]
-    defense_steps = [step.id for step in attack_graph.defense_steps]
-    flag_steps = [step for step, attributes in graph.nodes.items() if attributes["reward"] != 0 and attributes["step_type"] != DEFENSE]
+    attack_steps = {step.id for step in attack_graph.attack_steps}
+    defense_steps = {step.id for step in attack_graph.defense_steps}
+    flag_steps = {step for step, attributes in graph.nodes.items() if attributes["reward"] != 0 and attributes["step_type"] != DEFENSE}
 
-    plt.figure(figsize=(32, 18))
+    attack_steps -= flag_steps
+
+    plt.figure(figsize=(5, 5))
     nx.draw_networkx_edges(graph, pos, edgelist=OR_edges, **edge_options)
     nx.draw_networkx_edges(graph, pos, edgelist=AND_edges, style="dashed", **edge_options)
     nx.draw_networkx_nodes(
@@ -73,11 +75,20 @@ def draw_attack_graph(attack_graph: AttackGraph, _, outfile=None):
     )  # default spring_layout
     nx.draw_networkx_nodes(graph, pos, nodelist=defense_steps, **defense_options)
     nx.draw_networkx_nodes(graph, pos, nodelist=flag_steps, **flag_options)
-    nx.draw_networkx_labels(graph, pos, **label_options)
+    
+    step_labels = {step.id:step.asset for step in attack_graph.attack_steps}
+    root_label = {0: "A"}
+    flag_labels = {n:"F" for n in flag_steps}
+    defense_labels = {n:"D" for n in defense_steps}
+    step_labels |= root_label | flag_labels | defense_labels
+    nx.draw_networkx_labels(graph, pos, labels = step_labels, **label_options)
+    # nx.draw_networkx_labels(graph, pos, labels = defense_labels, **label_options)
+    # nx.draw_networkx_labels(graph, pos, labels = root_label, **label_options)
+    # nx.draw_networkx_labels(graph, pos, labels =  , **label_options)
 
     # Set margins for the axes so that nodes aren't clipped
     ax = plt.gca()
-    ax.margins(0.20)
+    ax.margins(0)
     plt.axis("off")
     plt.tight_layout()
 
