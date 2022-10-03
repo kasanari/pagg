@@ -22,7 +22,7 @@ def save_to_file(attack_graph: AttackGraph, instance_model: InstanceModel, file_
             "children": [node_to_string(attack_graph, instance_model, s) for s in attack_graph.children(step.id)],
             "asset": instance_model.get_asset_type(attack_graph[step.id].asset),
             "id": node_to_string(attack_graph, instance_model, step.id),
-            "name": step.id if step.name == "" else step.name,
+            "name": step.id if step.step_name == "" else step.step_name,
         }
         for step in attack_graph
     ]
@@ -51,7 +51,7 @@ def save_to_file(attack_graph: AttackGraph, instance_model: InstanceModel, file_
 def node_to_string(attack_graph: AttackGraph, instance_model: InstanceModel, node):
     asset_str = instance_model.asset_to_string(attack_graph[node].asset)
     
-    node_name = attack_graph[node].name
+    node_name = attack_graph[node].step_name
 
     if attack_graph[node].step_type == DEFENSE:
         node_name = "defend"

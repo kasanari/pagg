@@ -16,7 +16,7 @@ class AttackStep:
     reward: int = 0
     assets_disabled: List[int] = field(default_factory=list)
     conditions: Set[int] = field(default_factory=set)
-    name: str = ""
+    step_name: str = ""
 
     @property
     def is_flag(self):
@@ -74,7 +74,7 @@ class AttackGraph:
     def add_step(self, step_type, parent=None, asset=None, ttc=0, reward=0, assets_disabled=None, name=""):
         new_step = self.step_count
         self.graph.add_node(
-            new_step, step_type=step_type, ttc=ttc, asset=asset, reward=reward, assets_disabled=assets_disabled, name=name
+            new_step, step_type=step_type, ttc=ttc, asset=asset, reward=reward, assets_disabled=assets_disabled, step_name=name
         )
         if parent is not None:
             self.graph.add_edge(parent, new_step, ttc=ttc)
