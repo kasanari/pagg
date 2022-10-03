@@ -15,10 +15,14 @@ from .drawing import draw_attack_graph
 from .graph_utils import get_all_attack_steps_for_asset
 from .graph import InstanceModel, AttackGraph
 from graph_generator import graph_utils, nx_utils
+import enum
 
+class Mode(enum.Enum):
+    RANDOM = "random"
+    FITNESS = "fitness"
 
 class GraphGenerator:
-    def __init__(self, seed, max_nodes, mode="random", mu=0):
+    def __init__(self, seed, max_nodes, mode=Mode.RANDOM, mu=0):
         self.seed = seed
         self.rng: Generator = default_rng(seed)
         self.max_nodes = max_nodes
@@ -33,11 +37,13 @@ class GraphGenerator:
         nodes = self.graph.steps
 
         degrees = np.array([degree for _, degree in self.graph.graph.degree()])
-        if len(degrees) == 1 or self.mode == "random":
+        if len(degrees) == 1 or self.mode == Mode.RANDOM:
             weights = None
-        else:
+        elif self.mode == Mode.FITNESS:
             fitness = self.fitness[: len(nodes)]
             weights = (degrees * fitness) / np.sum(degrees * fitness)
+        else:
+            raise ValueError(f"Unknown mode {self.mode}")
 
         return int(self.rng.choice(nodes, p=weights))
 
