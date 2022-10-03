@@ -149,7 +149,7 @@ class GraphGenerator:
         """Convert a node to a string representation"""
         graph_utils.node_to_string(self.graph, self.instance_model, node)
 
-    def add_defense_steps(self, attack_graph: AttackGraph, instance_model: InstanceModel, add_attack_steps=False):
+    def add_defense_steps(self, attack_graph: AttackGraph, instance_model: InstanceModel, add_attack_steps=False, include_descendants=False):
         """
         Adds defense steps to the graph.
         :param attack_graph: The graph to add defense steps to.
@@ -166,9 +166,9 @@ class GraphGenerator:
                     step_type=DEFENSE,
                     asset=None,
                     reward=self.instance_model.calculate_defense_cost(asset),
-                    assets_disabled=list(nx.descendants(self.instance_model.graph, asset)),
+                    assets_disabled=list(nx.descendants(self.instance_model.graph, asset)) if include_descendants else [asset],
                 ),
-                get_all_attack_steps_for_asset(attack_graph, instance_model, asset),
+                get_all_attack_steps_for_asset(attack_graph, instance_model, asset, include_descendants),
                 asset,
             )
             for asset in assets
