@@ -1,10 +1,11 @@
+from typing import Union
 from dataclasses import dataclass, field
 from typing import List, Set
 
 import networkx as nx
 
 from . import nx_utils
-from .constants import *
+from .constants import ASSET, CONDITIONS, TTC, STEP
 
 
 @dataclass
@@ -12,15 +13,10 @@ class AttackStep:
     id: int
     step_type: str
     asset: int
-    ttc: int = 0
-    reward: int = 0
+    ttc: Union[int, TTC] = TTC.DEFAULT
     assets_disabled: List[int] = field(default_factory=list)
     conditions: Set[int] = field(default_factory=set)
     step_name: str = ""
-
-    @property
-    def is_flag(self):
-        return self.reward != 0 and self.step_type != DEFENSE
 
 
 @dataclass
@@ -71,10 +67,10 @@ class AttackGraph:
         self.step_count = 0
         self.entrypoint = 0
 
-    def add_step(self, step_type, parent=None, asset=None, ttc=0, reward=0, assets_disabled=None, name=""):
+    def add_step(self, step_type: STEP, parent=None, asset=None, ttc=TTC.DEFAULT, assets_disabled=None, name=""):
         new_step = self.step_count
         self.graph.add_node(
-            new_step, step_type=step_type, ttc=ttc, asset=asset, reward=reward, assets_disabled=assets_disabled, step_name=name
+            new_step, step_type=step_type, ttc=ttc, asset=asset, assets_disabled=assets_disabled, step_name=name
         )
         if parent is not None:
             self.graph.add_edge(parent, new_step, ttc=ttc)
@@ -92,11 +88,11 @@ class AttackGraph:
 
     @property
     def defense_steps(self):
-        return filter(lambda step: step.step_type == DEFENSE, self)
+        return filter(lambda step: step.step_type == STEP.DEFENSE, self)
 
     @property
     def attack_steps(self):
-        return filter(lambda step: step.step_type != DEFENSE, self)
+        return filter(lambda step: step.step_type != STEP.DEFENSE, self)
 
     @property
     def steps(self):

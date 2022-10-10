@@ -1,5 +1,5 @@
 import networkx as nx
-from .constants import *
+from .constants import STEP, STEP_TYPE
 from itertools import filterfalse
 from networkx.algorithms.shortest_paths.generic import shortest_path
 
@@ -22,7 +22,7 @@ def check_AND_reachability(graph: nx.DiGraph, entry_node):
         return (
             step_is_reachable(parent)
             for parent in graph.predecessors(node)
-            if graph.nodes[parent][STEP_TYPE] != DEFENSE
+            if graph.nodes[parent][STEP_TYPE] != STEP.DEFENSE
         )
 
     unreachable = filterfalse(lambda node: all(conditions_reachable(node)), graph.nodes)

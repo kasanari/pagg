@@ -1,43 +1,66 @@
+from itertools import chain
+from typing import Dict
 import matplotlib.pyplot as plt
 import networkx as nx
 
 from graph_generator.graph import AttackGraph
 
-from .constants import AND, ASSET, DEFENSE, OR, STEP_TYPE
+from .constants import STEP_TYPE, TTC, REWARD, STEP
 
+ttc_labels = {
+    TTC.NONE: "",
+    TTC.DEFAULT: "D",
+    TTC.EASY: "E",
+    TTC.MEDIUM: "M",
+    TTC.HARD: "H",
+}
 
-def draw_attack_graph(attack_graph: AttackGraph, _, outfile=None):
+reward_labels = {
+    REWARD.DEFAULT: "D",
+    REWARD.EASY: "E",
+    REWARD.MEDIUM: "M",
+    REWARD.HARD: "H",
+}
+
+def draw_attack_graph(attack_graph: AttackGraph, flags: Dict[str, REWARD], _, outfile=None):
 
     graph: nx.DiGraph = attack_graph.graph
     #lengths = list(nx.shortest_path_length(graph, source=0).values())
-    attack_node_colors = [step.asset for step in attack_graph.attack_steps if not step.is_flag]
+    attack_node_colors_dict = {step.id: '#ffffff' for step in attack_graph.attack_steps if step.id not in flags}
+    attack_node_colors_dict[0] = '#ff0000'
+
+    children_of_defense_steps = chain(*[list(attack_graph.graph.successors(step.id)) for step in attack_graph.defense_steps])
+    for child in children_of_defense_steps:
+        attack_node_colors_dict[child] = '#800080'
+
+    attack_node_colors = [attack_node_colors_dict[step.id] for step in attack_graph.attack_steps if step.id not in flags]
 
     # if num_assets is not None:
     #    node_colors = node_colors / num_assets
 
-    node_size = 300
+    node_size = 200
     node_options = {
         "node_size": node_size,
         "node_color": attack_node_colors,
         "edgecolors": "black",
-        "linewidths": 2,
+        "linewidths": 1,
     }
 
     defense_options = {
         "node_size": node_size,
-        "node_color": "blue",
+        "node_color": "#cbc3e3",
         "edgecolors": "black",
-        "linewidths": 2,
+        "linewidths": 1,
     }
 
     flag_options = {
         "node_size": node_size,
-        "node_color": "yellow",
+        "node_color": "#00ff00",
         "edgecolors": "black",
-        "linewidths": 2,
+        "linewidths": 1,
     }
 
-    edge_options = {"width": 2, "node_size": node_size}
+    edge_options = {"width": 1, "node_size": node_size}
 
     label_options = {
         "font_size": 10,
@@ -47,24 +70,24 @@ def draw_attack_graph(attack_graph: AttackGraph, _, outfile=None):
     #pos = nx.spring_layout(graph, k=10, iterations=1000, fixed=[0], pos={0:(0,0)}, center=(0,0), seed=seed)
     # pos = nx.planar_layout(graph, scale=10)
     # pos = nx.spectral_layout(graph)
-    pos = nx.nx_pydot.graphviz_layout(graph, root=0, prog="dot")
+    pos = nx.nx_pydot.graphviz_layout(graph, root=0, prog="sfdp")
 
     OR_edges = []
     AND_edges = []
     for p, c in graph.edges:
         child_type = graph.nodes[c][STEP_TYPE]
 
-        if child_type == OR:
+        if child_type == STEP.OR:
             OR_edges.append((p, c))
-        elif child_type == AND:
+        elif child_type == STEP.AND:
             AND_edges.append((p, c))
         else:
             raise Exception(f"Invalid child type {child_type}")
 
     attack_steps = {step.id for step in attack_graph.attack_steps}
     defense_steps = {step.id for step in attack_graph.defense_steps}
-    flag_steps = {step for step, attributes in graph.nodes.items() if attributes["reward"] != 0 and attributes["step_type"] != DEFENSE}
 
+    flag_steps = set(flags.keys())
     attack_steps -= flag_steps
 
     plt.figure(figsize=(5, 5))
@@ -76,9 +99,9 @@ def draw_attack_graph(attack_graph: AttackGraph, _, outfile=None):
     nx.draw_networkx_nodes(graph, pos, nodelist=defense_steps, **defense_options)
     nx.draw_networkx_nodes(graph, pos, nodelist=flag_steps, **flag_options)
     
-    step_labels = {step.id:step.asset for step in attack_graph.attack_steps}
+    step_labels = {step.id: ttc_labels[step.ttc] for step in attack_graph.attack_steps}
     root_label = {0: "A"}
-    flag_labels = {n:"F" for n in flag_steps}
+    flag_labels = {n:reward_labels[r] for n, r in flags.items()}
     defense_labels = {n:"D" for n in defense_steps}
     step_labels |= root_label | flag_labels | defense_labels
     nx.draw_networkx_labels(graph, pos, labels = step_labels, **label_options)

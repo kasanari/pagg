@@ -3,6 +3,7 @@ import networkx as nx
 
 from graph_generator.graph import AttackGraph, InstanceModel
 import graph_generator.graph_utils as graph_utils
+from graph_generator.drawing import draw_attack_graph
 
 FLOOR = 0
 ATTACKER = 2
@@ -50,7 +51,9 @@ tile2asset = {
     DEFENSE: "firewall",
 }
 
-with open("maze_graph.json", encoding="utf8") as f:
+graph_name = "4ways"
+
+with open(f"{graph_name}.json", encoding="utf8") as f:
     maze_graph = json.load(f)
 
 digraph: nx.DiGraph = nx.node_link_graph(maze_graph, directed=True, multigraph=False)
@@ -80,7 +83,7 @@ for node, d in digraph.nodes(data=True):
     attack_graph.graph.add_node(
         node,
         step_type=d["step_type"],
-        name=tile2attackname[d["tile"]],
+        step_name=tile2attackname[d["tile"]],
         ttc=d["ttc"],
         reward=reward,
         asset=asset_id,
@@ -95,6 +98,7 @@ for step in attack_graph.defense_steps:
         attack_graph.graph.add_edge(step.id, d)
 
 
+draw_attack_graph(attack_graph, None)
 
-with open("maze_attack_graph.yaml", "w", encoding="utf8") as f:
+with open(f"{graph_name}.yaml", "w", encoding="utf8") as f:
     graph_utils.save_to_file(attack_graph, instance_model, f)

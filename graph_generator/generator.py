@@ -2,7 +2,7 @@ from itertools import permutations
 import logging
 from pathlib import Path
 import random
-from typing import Tuple
+from typing import Dict, Tuple
 
 import networkx as nx
 import numpy as np
@@ -10,16 +10,19 @@ from networkx.algorithms.shortest_paths.generic import shortest_path
 from numpy.random import Generator, default_rng
 import scipy.stats as stats
 
-from .constants import *
+from .constants import ASSET, CONDITIONS, REWARD, TTC, STEP
+
 from .drawing import draw_attack_graph
 from .graph_utils import get_all_attack_steps_for_asset
-from .graph import InstanceModel, AttackGraph
+from .graph import  InstanceModel, AttackGraph
 from graph_generator import graph_utils, nx_utils
 import enum
 
 class Mode(enum.Enum):
     RANDOM = "random"
     FITNESS = "fitness"
+    BIANCONI = "bianconi"
+    DEGREE = "degree"
 
 class GraphGenerator:
     def __init__(self, seed, max_nodes, mode=Mode.RANDOM, mu=0):
@@ -30,18 +33,32 @@ class GraphGenerator:
         self.graph = AttackGraph()
         self.instance_model = InstanceModel()
         self.logger = logging.getLogger("generator")
-        self.fitness = stats.binom.pmf(np.arange(max_nodes), n=max_nodes, p=mu / max_nodes)
+        #self.fitness = stats.binom.pmf(np.arange(max_nodes), n=max_nodes, p=mu / max_nodes)
+        self.fitness = stats.truncnorm.pdf(np.arange(max_nodes), a=0, b=max_nodes, loc=0, scale=mu)
+
+        self.mu = mu
         self.mode = mode
+
+    def plot_fitness_distribution(self):
+        import matplotlib.pyplot as plt
+
+        plt.plot(self.fitness)
+        plt.savefig(f"fitness_{self.mu/self.max_nodes}.pdf")
+        plt.close()
 
     def select_next(self):
         nodes = self.graph.steps
 
         degrees = np.array([degree for _, degree in self.graph.graph.degree()])
+        fitness = self.fitness[: len(nodes)]
         if len(degrees) == 1 or self.mode == Mode.RANDOM:
             weights = None
-        elif self.mode == Mode.FITNESS:
-            fitness = self.fitness[: len(nodes)]
+        elif self.mode == Mode.BIANCONI:
             weights = (degrees * fitness) / np.sum(degrees * fitness)
+        elif self.mode == Mode.DEGREE:
+            weights = (degrees) / np.sum(degrees)
+        elif self.mode == Mode.FITNESS:
+            weights = (fitness) / np.sum(fitness)
         else:
             raise ValueError(f"Unknown mode {self.mode}")
 
@@ -51,11 +68,11 @@ class GraphGenerator:
         # Create root step
         root_asset = self.instance_model.add_asset(obj_class="internet", unmalleable=True)
         self.graph.add_step(
-            step_type=str(self.rng.choice([AND, OR])),
+            step_type=STEP.OR,
             asset=root_asset,
         )
         return [
-            self.graph.add_step(step_type=str(self.rng.choice([AND, OR])), parent=self.select_next(), asset=root_asset)
+            self.graph.add_step(step_type=[STEP.AND, STEP.OR][self.rng.integers(0, 2)], parent=self.select_next(), asset=root_asset)
             for _ in range(1, self.max_nodes)
         ]
 
@@ -100,54 +117,54 @@ class GraphGenerator:
         nx.set_node_attributes(self.graph.graph, assets, name=ASSET)
         nx.set_node_attributes(self.graph.graph, conditions, name=CONDITIONS)
 
-    def set_flags(self, num_flags):
+    def set_flags(self, num_flags) -> Dict[int, REWARD]:
         """Set the flags for the graph. This is done after the graph is generated"""
         # These are just template indexes, not the actual reward values
-        easy_reward = 1
-        medium_reward = 2
-        hard_reward = 3
 
         if num_flags == 0:
-            return 0
+            return {}
 
         nodes = self.graph.steps
         self.rng.shuffle(nodes)
 
-        eligible_nodes = list(filter(lambda node: self.graph.graph.out_degree(node) == 0, nodes))
+        def filter_func(node):
+            return (
+                self.graph.graph.out_degree(node) == 0
+                and self.graph.graph.in_degree(node) > 0
+                and self.entrypoint not in self.graph.graph.predecessors(node)
+            )
+
+        eligible_nodes = list(filter(filter_func, nodes))
 
         if len(eligible_nodes) < num_flags:
             self.logger.warning("Number of flags requested is higher than the number of eligible nodes.")
             num_flags = len(eligible_nodes)
         elif len(eligible_nodes) == 0:
             self.logger.warning("No nodes in graph are eligible to become flags.")
-            return 0
+            return {}
 
         flags = self.rng.choice(eligible_nodes, size=num_flags, replace=False)
 
         distances = {f: len(shortest_path(self.graph.graph, self.entrypoint, f)) for f in flags}
 
-        d = np.array(list(distances.values()))
+        d = np.unique(np.array(list(distances.values())))
         medium_bar = np.quantile(d, 1 / 3)
         hard_bar = np.quantile(d, 2 / 3)
 
         def get_reward(distance):
             if distance <= medium_bar:
-                return easy_reward
+                return REWARD.EASY
             if distance <= hard_bar:
-                return medium_reward
-            return hard_reward
+                return REWARD.MEDIUM
+            return REWARD.HARD
 
         flags_with_rewards = {f: get_reward(distance) for f, distance in distances.items()}
 
-        new_assets = {f: self.instance_model.add_asset(self.graph[f].asset, flag=True, unmalleable=True) for f in flags}
+        #new_assets = {f: self.instance_model.add_asset(self.graph[f].asset, flag=True, unmalleable=True) for f in flags}
 
-        nx.set_node_attributes(self.graph.graph, new_assets, ASSET)
-        nx.set_node_attributes(self.graph.graph, flags_with_rewards, "reward")
-        return len(flags)
-
-    def node_to_string(self, node):
-        """Convert a node to a string representation"""
-        graph_utils.node_to_string(self.graph, self.instance_model, node)
+        #nx.set_node_attributes(self.graph.graph, new_assets, ASSET)
+        #nx.set_node_attributes(self.graph.graph, flags_with_rewards, "reward")
+        return flags_with_rewards
 
     def add_defense_steps(self, attack_graph: AttackGraph, instance_model: InstanceModel, add_attack_steps=False, include_descendants=False):
         """
@@ -163,7 +180,7 @@ class GraphGenerator:
         defense_steps = [
             (
                 attack_graph.add_step(
-                    step_type=DEFENSE,
+                    step_type=STEP.DEFENSE,
                     asset=None,
                     reward=self.instance_model.calculate_defense_cost(asset),
                     assets_disabled=list(nx.descendants(self.instance_model.graph, asset)) if include_descendants else [asset],
@@ -193,6 +210,23 @@ class GraphGenerator:
         self.graph.update_step(node, new_asset)
         descendants = list(nx.descendants(self.graph.graph, node))
         return [self.graph.update_step(n, new_asset) for n in descendants]
+
+    def add_flag_defenses(self, flags):
+        for flag in flags:
+            flag_node = self.graph[flag]
+            asset = flag_node.asset
+            defense_step = self.graph.add_step(step_type=STEP.DEFENSE, ttc=TTC.DEFAULT, asset=asset)
+            firewall = self.graph.add_step(step_type=STEP.AND, parent=defense_step, ttc=TTC.NONE, asset=asset)
+            
+            flag_parents = list(self.graph.graph.predecessors(flag))
+            
+            for parent in flag_parents:
+                self.graph.graph.add_edge(parent, firewall)
+            
+            for parent in flag_parents:
+                self.graph.graph.remove_edge(parent, flag)
+            
+            self.graph.graph.add_edge(firewall, flag)
 
     def add_more_assets(self):
         # high degree
@@ -240,12 +274,15 @@ class GraphGenerator:
             )
 
         if num_flags > 0:
-            generator.set_flags(num_flags=num_flags)
+            flags = generator.set_flags(num_flags=num_flags)
 
         if add_defense_steps:
-            generator.add_defense_steps(generator.graph, generator.instance_model)
+            #generator.add_defense_steps(generator.graph, generator.instance_model)
+            generator.add_flag_defenses(flags)
 
-        return (generator.graph, generator.instance_model)
+        generator.plot_fitness_distribution()
+
+        return (generator.graph, generator.instance_model, flags)
 
 
 def generate_graph(name, size, lateral_connections, num_flags, add_defense, seed, mode, mu):
@@ -265,7 +302,7 @@ def generate_graph(name, size, lateral_connections, num_flags, add_defense, seed
 
     random.seed(seed)
 
-    attack_graph, instance_model = GraphGenerator.generate_attack_graph(
+    attack_graph, instance_model, flags = GraphGenerator.generate_attack_graph(
         seed, size, lateral_connections, num_flags, mode, mu, add_defense_steps=add_defense
     )
 
@@ -280,11 +317,11 @@ def generate_graph(name, size, lateral_connections, num_flags, add_defense, seed
     avg_cc = np.mean(list(nx.clustering(attack_graph.graph).values()))
     logger.info("Average CC: %d", avg_cc)
 
-    mean_in_degress = np.mean(attack_graph.graph.in_degree())
-    mean_out_degrees = np.mean(attack_graph.graph.out_degree())
+    mean_in_degress = np.mean([v for _, v in attack_graph.graph.in_degree()])
+    mean_out_degrees = np.mean([v for _, v in attack_graph.graph.out_degree()])
 
     with open(yaml_path, "w", encoding="utf-8") as f:
-        graph_utils.save_to_file(attack_graph, instance_model, f)
+        graph_utils.save_to_file(attack_graph, instance_model, flags, f)
 
     logger.info("Nodes have %f incoming edges, and %f outgoing edges on average.", mean_in_degress, mean_out_degrees)
 
@@ -308,7 +345,7 @@ def generate_graph(name, size, lateral_connections, num_flags, add_defense, seed
 
     logger.info("Graph has %d flags.", num_flags)
 
-    draw_attack_graph(attack_graph, seed, img_path)
+    draw_attack_graph(attack_graph, flags, seed, img_path)
 
     # draw_instance_model(instance_model.graph, f"instance_{name}.pdf")
 

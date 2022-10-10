@@ -4,7 +4,8 @@ from typing import List
 import networkx as nx
 from networkx.algorithms.shortest_paths.generic import shortest_path
 
-from .constants import AND, STEP_TYPE
+from .constants import STEP_TYPE
+from .graph import STEP
 
 
 def add_unique(path: list, item):
@@ -33,7 +34,7 @@ class PathFinderAttacker:
         for node_id in path:
             step = self.attack_graph.nodes[node_id]
             # If node is AND step, go to parents first.
-            if step[STEP_TYPE] == AND and node_id not in self.total_path:
+            if step[STEP_TYPE] == STEP.AND and node_id not in self.total_path:
                 parents = self.attack_graph.predecessors(node_id)
                 paths_to_parents = []
                 for p in parents:
