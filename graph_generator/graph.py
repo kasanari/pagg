@@ -11,7 +11,7 @@ from .constants import ASSET, CONDITIONS, TTC, STEP
 @dataclass
 class AttackStep:
     id: int
-    step_type: str
+    step_type: STEP
     asset: int
     ttc: Union[int, TTC] = TTC.DEFAULT
     assets_disabled: List[int] = field(default_factory=list)
@@ -52,9 +52,8 @@ class InstanceModel:
     def get_asset_type(self, asset):
         if self[asset].is_flag:
             return "flag"
-        
-        return self[asset].obj_class
 
+        return self[asset].obj_class
 
     def asset_to_string(self, asset):
         obj_type = self.get_asset_type(asset)

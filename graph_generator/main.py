@@ -1,5 +1,7 @@
 from itertools import chain
 from graph_generator.generator import generate_graph, Mode
+import numpy as np
+
 
 def main(seed=888):
 
@@ -15,13 +17,14 @@ def main(seed=888):
         dict(
             name=f"graph_{nodes}" if x else f"graph_{nodes}_no_defense",
             size=nodes,
-            lateral_connections = nodes // 10,
-            num_flags=nodes // 10,
+            lateral_connections=nodes // 10,
+            num_flags=nodes // 20,
+            useless_defenses=0,  # nodes//20,
             add_defense=x,
             mode=Mode.DEGREE,
             mu=2,
         )
-        for nodes in [50, 100] #in np.arange(0, 500, 50) + 50
+        for nodes in [20, 40, 60, 80]  # in np.arange(0, 500, 50) + 50
     )
 
     for config in chain(generate(True), generate(False)):

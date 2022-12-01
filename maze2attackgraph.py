@@ -4,6 +4,7 @@ import networkx as nx
 from graph_generator.graph import AttackGraph, InstanceModel
 import graph_generator.graph_utils as graph_utils
 from graph_generator.drawing import draw_attack_graph
+from graph_generator.constants import REWARD, STEP, TTC
 
 FLOOR = 0
 ATTACKER = 2
@@ -51,7 +52,10 @@ tile2asset = {
     DEFENSE: "firewall",
 }
 
-graph_name = "4ways"
+graph_name = "1way"
+
+tile2steptype = {"or": STEP.OR, "and": STEP.AND, "defense": STEP.DEFENSE}
+
 
 with open(f"{graph_name}.json", encoding="utf8") as f:
     maze_graph = json.load(f)
@@ -60,6 +64,7 @@ digraph: nx.DiGraph = nx.node_link_graph(maze_graph, directed=True, multigraph=F
 
 attack_graph = AttackGraph()
 instance_model = InstanceModel()
+rewards = {}
 
 for node, d in digraph.nodes(data=True):
     is_flag = d["tile"] == FLAG
@@ -74,18 +79,22 @@ for node, d in digraph.nodes(data=True):
         )
 
     if d["tile"] == FLAG:
-        reward = 3
+        reward = REWARD.DEFAULT
     elif d["tile"] == DEFENSE_ENABLE:
-        reward = "defense_default"
+        reward = REWARD.DEFAULT
     else:
-        reward = 0
+        reward = None
+
+
+    step_name = tile2attackname[d["tile"]]
+    if reward:
+        rewards[node] = reward
 
     attack_graph.graph.add_node(
         node,
-        step_type=d["step_type"],
-        step_name=tile2attackname[d["tile"]],
+        step_type=tile2steptype[d["step_type"]],
+        step_name=step_name,
         ttc=d["ttc"],
-        reward=reward,
         asset=asset_id,
     )
 
@@ -98,7 +107,7 @@ for step in attack_graph.defense_steps:
         attack_graph.graph.add_edge(step.id, d)
 
 
-draw_attack_graph(attack_graph, None)
+draw_attack_graph(attack_graph, rewards, None)
 
 with open(f"{graph_name}.yaml", "w", encoding="utf8") as f:
-    graph_utils.save_to_file(attack_graph, instance_model, f)
+    graph_utils.save_to_file(attack_graph, instance_model, rewards, f)

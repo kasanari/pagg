@@ -3,7 +3,7 @@ from typing import Dict, TextIO
 
 import networkx as nx
 
-from .constants import CONDITIONS, ASSET, STEP, REWARD
+from .constants import CONDITIONS, ASSET, STEP, REWARD, TTC
 from .graph import AttackGraph, InstanceModel
 
 reward_labels = {
@@ -14,13 +14,16 @@ reward_labels = {
 }
 
 
-
-def save_to_file(attack_graph: AttackGraph, instance_model: InstanceModel, flags: Dict[str, REWARD], file_pointer: TextIO):
+def save_to_file(
+    attack_graph: AttackGraph, instance_model: InstanceModel, flags: Dict[str, REWARD], file_pointer: TextIO
+):
     ag = [
         {
-            "step_type": step.step_type,
-            "ttc": step.ttc,
-            "children": [node_to_string(attack_graph, instance_model, flags, s) for s in attack_graph.children(step.id)],
+            "step_type": step.step_type.value,
+            "ttc": step.ttc.value if isinstance(step.ttc, TTC) else step.ttc,
+            "children": [
+                node_to_string(attack_graph, instance_model, flags, s) for s in attack_graph.children(step.id)
+            ],
             "asset": instance_model.get_asset_type(attack_graph[step.id].asset),
             "id": node_to_string(attack_graph, instance_model, flags, step.id),
             "name": step.id if step.step_name == "" else step.step_name,
@@ -29,29 +32,20 @@ def save_to_file(attack_graph: AttackGraph, instance_model: InstanceModel, flags
     ]
 
     im = [
-        {
-            "id": asset.id,
-            "dependents": [a for a in nx.descendants(instance_model.graph, asset.id)]
-        }
+        {"id": asset.id, "dependents": [a for a in nx.descendants(instance_model.graph, asset.id)]}
         for asset in instance_model
     ]
 
-    flags = {
-        node_to_string(attack_graph, instance_model, flags, step) : reward for step, reward in flags.items()
-    }
+    flags = {node_to_string(attack_graph, instance_model, flags, step): reward.value for step, reward in flags.items()}
 
-    to_save = {
-        "attack_graph": ag,
-        "instance_model": im,
-        "flags": flags
-    }
+    to_save = {"attack_graph": ag, "instance_model": im, "flags": flags}
 
     yaml.dump(to_save, file_pointer)
 
 
 def node_to_string(attack_graph: AttackGraph, instance_model: InstanceModel, flags: Dict[str, REWARD], node):
     asset_str = instance_model.asset_to_string(attack_graph[node].asset)
-    
+
     node_name = attack_graph[node].step_name
 
     if attack_graph[node].step_type == STEP.DEFENSE:
@@ -61,17 +55,20 @@ def node_to_string(attack_graph: AttackGraph, instance_model: InstanceModel, fla
 
     return f"{asset_str}:{node_name}:{node}"
 
-def get_all_attack_steps_for_asset(attack_graph: AttackGraph, instance_model: InstanceModel, asset: int, include_descendants: bool = False):
+
+def get_all_attack_steps_for_asset(
+    attack_graph: AttackGraph, instance_model: InstanceModel, asset: int, include_descendants: bool = False
+):
     asset_attack_steps = {node.id for node in attack_graph if node.asset == asset}
-    
+
     if include_descendants:
         asset_attack_steps = asset_attack_steps.union(
-                *[
-                    get_all_attack_steps_for_asset(attack_graph, instance_model, descendant)
-                    for descendant in nx.descendants(instance_model.graph, asset)
-                ]
-            )
-            
+            *[
+                get_all_attack_steps_for_asset(attack_graph, instance_model, descendant)
+                for descendant in nx.descendants(instance_model.graph, asset)
+            ]
+        )
+
     return asset_attack_steps
 
 
